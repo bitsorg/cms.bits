@@ -1,0 +1,3 @@
+package: defaults-release
+version: "1.0"
+---

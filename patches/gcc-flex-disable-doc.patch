@@ -1,0 +1,12 @@
+diff --git a/Makefile.in b/Makefile.in
+index 8c41885..7c2eb0d 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -450,7 +450,6 @@ EXTRA_DIST = \
+ 
+ SUBDIRS = \
+ 	src \
+-	doc \
+ 	examples \
+ 	po \
+ 	tests \
