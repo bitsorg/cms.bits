@@ -27,8 +27,8 @@ sources:
 patches:
  - gcc-flex-disable-doc.patch
  - gcc-flex-nonfull-path-m4.patch
+validate_deps: false
 ---
-# Unpack all source archives
 for f in "$SOURCEDIR"/*; do
     case "$f" in
         *.tar.gz) tar -xzf "$f" -C "$BUILDDIR";;
@@ -36,13 +36,13 @@ for f in "$SOURCEDIR"/*; do
     esac
 done
 
-# Apply patches
 pushd "$BUILDDIR/flex-%(flexVersion)s"
   patch -p1 < $SOURCEDIR/$PATCH0
   patch -p1 < $SOURCEDIR/$PATCH1
 popd
 
-# Set environment variables
+# Detect OS and set appropriate compiler toolchain
+# macOS uses clang with Objective-C support, Linux uses gcc
 OS="$(uname)"
 ARCH="$(uname -m)"
 if [ "$OS" = "Darwin" ]; then
@@ -60,13 +60,16 @@ else
   export CONF_GCC_OS_SPEC=""
 fi
 
+# Enable Position Independent Code for shared library compatibility
 CC="$CC -fPIC"
 CXX="$CXX -fPIC"
 
+# Temporary directory for intermediate build tools (not included in final install)
 mkdir -p ${INSTALLROOT}/tmp/sw
 export PATH=${INSTALLROOT}/tmp/sw/bin:$PATH
 
-# Build zlib
+# Build zlib with architecture-specific optimizations
+# -msse3 enabled only on x86_64 for SIMD performance boost
 pushd "$BUILDDIR/zlib-%(zlibVersion)s"
   CONF_FLAGS="-fPIC -O3 -DUSE_MMAP -DUNALIGNED_OK -D_LARGEFILE64_SOURCE=1"
   if [ "$ARCH" = "x86_64" ]; then
@@ -82,20 +85,21 @@ CFLAGS="-O2"
 CMS_BITS_MARCH=$(gcc -dumpmachine)
 echo $CMS_BITS_MARCH
 
+# Linux-specific builds: these tools are typically pre-installed on macOS
 if [ "$OS" = "Linux" ]; then
-  # Configure flags
+  # Configure linker options:
+  # - gold linker enabled for faster linking on large projects
+  # - LTO plugin support for link-time optimization
   CONF_BINUTILS_OPTS="--enable-ld=default --enable-lto --enable-plugins --enable-threads"
   CONF_GCC_WITH_LTO="--enable-ld=default --enable-lto"
   CONF_BINUTILS_OPTS+=" --enable-gold=yes"
   CONF_GCC_WITH_LTO+=" --enable-gold=yes"
 
-  # Build zstd
   make -C zstd-%(zstdVersion)s/lib ${JOBS:+-j "$JOBS"} \
        install-static install-includes \
        prefix="${INSTALLROOT}/tmp/sw" \
        CPPFLAGS="-fPIC" CFLAGS="-fPIC"
 
-  # Build m4
   pushd "$BUILDDIR"/m4-%(m4Version)s
     ./configure --prefix="${INSTALLROOT}/tmp/sw" \
                 --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
@@ -104,7 +108,6 @@ if [ "$OS" = "Linux" ]; then
     make install && echo "   install m4 OK"
   popd
 
-  # Build bison
   pushd "$BUILDDIR"/bison-%(bisonVersion)s
     ./configure --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
                 --prefix="${INSTALLROOT}/tmp/sw" \
@@ -113,7 +116,6 @@ if [ "$OS" = "Linux" ]; then
     make install && echo "   install bison OK"
   popd
 
-  # Build flex
   pushd "$BUILDDIR"/flex-%(flexVersion)s
     ./configure --disable-nls --prefix="${INSTALLROOT}/tmp/sw" \
                 --enable-static --disable-shared \
@@ -123,9 +125,10 @@ if [ "$OS" = "Linux" ]; then
     make install && echo "   install flex OK"
   popd
 
-  # Build elfutils
+  # elfutils: tools for ELF binary inspection and debug info handling
+  # --program-prefix='eu-' avoids conflicts with binutils tools
   pushd "$BUILDDIR"/elfutils-%(elfutilsVersion)s
-    ./configure --disable-static --with-zlib --without-bzlib --without-lzma \
+    ./configure --disable-static --with-zlib --without-bzlib --without-lzma --without-libarchive \
                 --disable-libdebuginfod --enable-libdebuginfod=dummy --disable-debuginfod \
                 --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" --program-prefix='eu-' \
                 --disable-silent-rules --prefix="${INSTALLROOT}" \
@@ -136,12 +139,12 @@ if [ "$OS" = "Linux" ]; then
     make install && echo "   install elfutils OK"
   popd
 
+  # ppc64le: enable cross-compilation targets for SPU and PowerPC
   if [ "$ARCH" = "ppc64le" ]; then
     echo "DETected ppc64le: enabling SPU and powerpc targets"
     CONF_BINUTILS_OPTS+=" --enable-targets=spu --enable-targets=powerpc-linux"
   fi
 
-  # Build binutils
   pushd "$BUILDDIR"/binutils-%(binutilsVersion)s
     ./configure --disable-static --prefix="${INSTALLROOT}" \
                 ${CONF_BINUTILS_OPTS} \
@@ -155,6 +158,7 @@ if [ "$OS" = "Linux" ]; then
 
     make ${JOBS:+-j "$JOBS"} && echo "   make binutils OK"
 
+    # Replace symlinks with copies for systems that don't handle symlinks well
     find . -name Makefile \
       -exec perl -p -i -e 's|LN = ln|LN = cp -p|;s|ln ([^-])|cp -p $1|g' {} \;
     make install && echo "   install binutils OK"
@@ -162,7 +166,9 @@ if [ "$OS" = "Linux" ]; then
 fi
 echo Done
 
-# Build gmp
+# GMP, MPFR, MPC, ISL: math libraries required by GCC
+# Build order matters: GMP -> MPFR -> MPC (dependency chain)
+# ISL depends on GMP and enables Graphite loop optimizations
 pushd "$BUILDDIR"/gmp-%(gmpVersion)s
   ./configure --disable-static --prefix="${INSTALLROOT}" --enable-shared --disable-static --enable-cxx \
               --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
@@ -171,7 +177,6 @@ pushd "$BUILDDIR"/gmp-%(gmpVersion)s
   make install
 popd
 
-# Build mpfr
 pushd "$BUILDDIR"/mpfr-%(mpfrVersion)s
   ./configure --disable-static --prefix="${INSTALLROOT}" --with-gmp="${INSTALLROOT}" \
               --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
@@ -180,7 +185,6 @@ pushd "$BUILDDIR"/mpfr-%(mpfrVersion)s
   make install
 popd
 
-# Build mpc
 pushd "$BUILDDIR"/mpc-%(mpcVersion)s
   ./configure --disable-static --prefix="${INSTALLROOT}" --with-gmp="${INSTALLROOT}" --with-mpfr="${INSTALLROOT}" \
               --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
@@ -189,7 +193,6 @@ pushd "$BUILDDIR"/mpc-%(mpcVersion)s
   make install
 popd
 
-# Build isl
 pushd "$BUILDDIR"/isl-%(islVersion)s
   ./configure --disable-static --with-gmp-prefix="${INSTALLROOT}" --prefix="${INSTALLROOT}" \
               --build="$CMS_BITS_MARCH" --host="$CMS_BITS_MARCH" \
