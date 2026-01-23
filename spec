@@ -18,7 +18,7 @@ License: CMS
 CMS package for %{pkgname}
 
 %install
-cp -a %{work_dir}/%{arch}/%{pkgname}/%{version}-%{revision}/* %{buildroot}/
+cp -a %{inst_root}/* %{buildroot}/
 
 find %{buildroot} -type f -exec chmod u+w '{}' \;
 find %{buildroot} -type d -exec chmod u+w '{}' \;

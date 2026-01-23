@@ -1,3 +1,12 @@
+if [[ -z "$CACHED_TARBALL" ]]; then
+  export BITS_CREATE_RPM=true
+elif [[ -d "$INSTALLROOT/etc/rpm" ]]; then
+  export BITS_CREATE_RPM=false
+else
+  echo "ERROR: RPM metadata missing in cached tarball for $PKGNAME" >&2
+  exit 1
+fi
+
 check_rpm_dependencies() {
     local config_dir="$1"
     local work_dir="$2"
@@ -12,7 +21,7 @@ check_rpm_dependencies() {
 create_rpm() {
     mkdir -p "$WORK_DIR/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
     chmod -R u+w "$WORK_DIR/rpmbuild"
-    cp "$(get_file spec)" "$WORK_DIR/rpmbuild/SPECS/$PKGNAME.spec"
+    cp "$(get_file_from_configDir spec)" "$WORK_DIR/rpmbuild/SPECS/$PKGNAME.spec"
     RPM_REQUIRES=""
     for req in $RUNTIME_REQUIRES; do
         if [[ $req == defaults-* ]]; then
@@ -46,6 +55,7 @@ create_rpm() {
         --define "summary ${PKGNAME} ${PKGVERSION}-${PKGREVISION}" \
         --define "_topdir $WORK_DIR/rpmbuild" \
         --define "buildroot $WORK_DIR/rpmbuild/BUILDROOT/${PKGNAME}" \
+	--define "inst_root $INSTALLROOT" \
         "$WORK_DIR/rpmbuild/SPECS/${PKGNAME}.spec" || exit 1
 
     RPM_FILE="$WORK_DIR/rpmbuild/RPMS/${PKGNAME}_${PKGHASH}-1-1.${ARCHITECTURE}.rpm"
