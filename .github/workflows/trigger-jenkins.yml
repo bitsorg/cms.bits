@@ -1,0 +1,39 @@
+name: Trigger Jenkins Build
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-org:
+    runs-on: self-hosted
+    if: |
+      github.event.issue.pull_request != null &&
+      github.event.comment.body == 'ok to build'
+    outputs:
+      is_member: ${{ steps.check.outputs.is_member }}
+
+    steps:
+      - name: Check if commenter is org member
+        id: check
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/orgs/bitsorg/members/${{ github.event.comment.user.login }}")
+          if [ "$RESPONSE" == "204" ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  trigger:
+    runs-on: self-hosted
+    needs: check-org
+    if: needs.check-org.outputs.is_member == 'true'
+
+    steps:
+      - name: Trigger Jenkins job
+        run: |
+          curl -X POST \
+            --user "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_TOKEN }}" \
+            "http://100.70.59.106:8080/job/build-cmssw-tools/build?token=${{ secrets.JENKINS_TRIGGER_TOKEN }}"
