@@ -3,7 +3,7 @@
 
 # --- Source / config ---
 branch:        master
-configtag:     V09-10-12
+configtag:     V09-11-03
 srctree:       src
 bootstrapfile: config/bootsrc.xml
 
@@ -39,7 +39,7 @@ cuda_gcc_support:              "true"
 cuda_host_min_microarch_name:  "x86-64-v2"
 
 # --- Debug / profiling ---
-subpackageDebug:        "yes"
+subpackageDebug:        "0"
 saveDeps:               "yes"
 runGlimpse:             "yes"
 enable_frame_pointer:   "1"
