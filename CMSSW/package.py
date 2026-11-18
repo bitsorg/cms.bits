@@ -129,7 +129,10 @@ if pkg_type == 'cmssw':
         package=ib_name,
         version="%s_%s" % (ib_name, date_time),
         extra_vars={'branch': branch},
-        body_prefix='source $WORK_DIR/cmsset_default.sh\n',
+        body_prefix=(
+            'export SCRAM_ARCH="$ARCHITECTURE"\n'
+            'source "$WORK_DIR/cmsset_default.sh"\n'
+        ),
         config=config,
     )
 
