@@ -1,3 +1,4 @@
+build_environment: direct
 build_requires:
  - SCRAMV1
  - dwz
@@ -7,5 +8,5 @@ hook:
   POST_INSTALL: generate_module
 sources:
  - git+https://github.com/cms-sw/cmssw-config.git?obj=master/%(configtag)s&export=config&output=/cmssw-config-%(configtag)s.tgz
- - git+https://github.com/cms-sw/cmssw.git?protocol=https&obj=master/fb7e0ddfaf202a080b18291928f4baee3d01054b&module=CMSSW&export=%(srctree)s&output=/src.tar.gz
+ - git+https://github.com/cms-sw/cmssw.git?protocol=https&obj=master/f83301e1e861bda834aa79034507e8f82f196113&module=CMSSW&export=%(srctree)s&output=/src.tar.gz
 force_revision: ""
