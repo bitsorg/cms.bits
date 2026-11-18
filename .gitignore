@@ -3,10 +3,8 @@ defaults-cms.sh
 defaults-x86_64.sh
 demo.sh
 sbsa.sh
-data/__pycache__
-pypi/__pycache__/packages.cpython-39.pyc
+__pycache__/
 defaults-cms.sh
-pypi/__pycache__/packages.cpython-39.pyc
 flash.sh
 temp.txt
 build_all.sh
