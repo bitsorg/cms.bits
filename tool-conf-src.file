@@ -12,6 +12,18 @@ chmod +x "$BUILDDIR/bin/fix_tool_variables"
 #!include <toolflags.file>
 export PYTHONV="$PYTHON_MAJOR_MINOR_VERSION"
 source $BUILDDIR/tool-env.file
+
+# Keep presence tests as identifiers before fix_tool_variables expands @VAR@.
+find "$BUILDDIR/tools" -type f \( -name '*.xml' -o -name '*.tmpl' \) -exec sed -Ei \
+  -e 's/^([[:space:]]*#[[:space:]]*ifn?def[[:space:]]+)@([A-Za-z_][A-Za-z0-9_]*)@/\1\2/' \
+  -e 's/^([[:space:]]*#[[:space:]]*if[[:space:]]+)@([A-Za-z_][A-Za-z0-9_]*_REVISION)@/\1defined(\2)/' {} +
+case "%(enable_frame_pointer)s" in
+  1|true|yes) export enable_frame_pointer=1 ;;
+  *) unset enable_frame_pointer ;;
+esac
+package_vectorization="%(package_vectorization)s"
+vectorized_packages="%(vectorized_packages)s"
+export PKG_VECTORIZATION="$package_vectorization"
 # =============================================================================
 # tool-conf-src.file - SCRAM tool configuration generator for bits
 # =============================================================================
@@ -36,6 +48,26 @@ for tool in $FULL_REQUIRES; do
 done
 "$BUILDDIR/bin/get_tools" "" "system" "$INSTALLROOT" "systemtools"
 wait
+
+# Generate per-target SCRAM tools and compiler flags, as in cmsdist.
+if [ -n "$package_vectorization" ] && [ "$package_vectorization" != "0" ] && [ "$package_vectorization" != "--" ] && [ -n "$vectorized_packages" ] && [ "$vectorized_packages" != "--" ]; then
+  test -x "$BUILDDIR/bin/get_vectorized_tools"
+  echo "$vectorized_packages" > "$INSTALLROOT/vectorized_packages.txt"
+  for vec in $package_vectorization; do
+    ucvec=$(echo "$vec" | tr 'a-z-' 'A-Z_')
+    for tool in $vectorized_packages; do
+      uctool=$(echo "$tool" | tr 'a-z-' 'A-Z_')
+      root_var="${uctool}_${ucvec}_ROOT"
+      version_var="${uctool}_${ucvec}_VERSION"
+      : "${!root_var:?Missing vectorized package root}"
+      : "${!version_var:?Missing vectorized package version}"
+      "$BUILDDIR/bin/get_vectorized_tools" "${!root_var}" "${!version_var}" "$INSTALLROOT" "$tool" "$vec"
+    done
+    if [ -f "$INSTALLROOT/tools/selected/gcc-cxxcompiler.xml" ]; then
+      sed -i -e "s# *</tool>#    <flags CXXFLAGS_TARGETS_${ucvec}=\"-march=${vec}\"/>\\n    <flags REM_CXXFLAGS_TARGETS_${ucvec}=\"${default_microarch}\"/>\\n  </tool>#" "$INSTALLROOT/tools/selected/gcc-cxxcompiler.xml"
+    fi
+  done
+fi
 
 # Move skipped tools from selected -> available
 skipreqtools="%(skipreqtools)s"
@@ -162,29 +194,22 @@ pytool_content() {
 }
 
 generate_defines_h() {
-    local INPUT="$1"
-    {
-        echo "/* Auto-generated defines */"
-        echo "#pragma once"
-        echo ""
-        echo "$INPUT" | tr ',' '\n' | while IFS='=' read -r key value; do
-            key=$(echo "$key" | tr -d ' ')
-            value=$(echo "$value" | tr -d " '")
-            [ -z "$key" ] && continue
-            echo "#define ${key} '${value}'"
-        done
-    } > defines.h
+  # Self-referential macros support #ifdef without rewriting XML names.
+  LC_ALL=C compgen -e | LC_ALL=C awk '
+    /^[A-Za-z_][A-Za-z0-9_]*$/ && !seen[$0]++ { print "#define " $0 " " $0 }
+  ' > "$1"
 }
 
 tool_content() {
-  local xml=$1
-  local type=$2
-  tool=$(basename $xml)
-  echo "cpp -P -x assembler-with-cpp << \\EOF_TOOLFILE >> \$PKGINSTROOT/tools/${type}/${tool}" > ${xml}.tmp
-  cat $xml                     >> ${xml}.tmp
-  echo -e "\nEOF_TOOLFILE\n"   >> ${xml}.tmp
-  grep -v '^\s*$' ${xml}.tmp > $xml
-  rm -f ${xml}.tmp
+  local xml=$1 type=$2 tool
+  tool=$(basename "$xml")
+  cpp -P -x assembler-with-cpp -include "$defines_header" "$xml" > "$xml.tmp" || return
+  {
+    echo "cat << \EOF_TOOLFILE >> \$PKGINSTROOT/tools/${type}/${tool}"
+    cat "$xml.tmp"
+    printf '\nEOF_TOOLFILE\n'
+  } > "$xml"
+  rm -f "$xml.tmp"
 }
 
 ALL_PY_BIN=""
@@ -259,6 +284,8 @@ if [ -e "$INSTALLROOT/tools/selected/cuda-gcc-support.xml" ] ; then
 fi
 
 # Create template files
+defines_header="$BUILDDIR/.tool-defines.h"
+generate_defines_h "$defines_header"
 mkdir -p "$INSTALLROOT/tools"
 for type in selected available ; do
   rm -f "$INSTALLROOT/tools/${type}.tmpl"
@@ -266,12 +293,13 @@ for type in selected available ; do
   [ -d "$INSTALLROOT/tools/${type}" ] || continue
   for xml in $(ls "$INSTALLROOT/tools/${type}/"*.xml 2>/dev/null) ; do
     while [ $(jobs -r -p | wc -l) -gt ${JOBS:-4} ] ; do sleep 0.01; done
-    tool_content "$xml" "$type" &
+    tool_content "$xml" "$type"
   done
-  wait
   find "$INSTALLROOT/tools/${type}" -name '*.xml' | xargs cat >> "$INSTALLROOT/tools/${type}.tmpl"
   rm -rf "$INSTALLROOT/tools/${type}"
 done
+
+rm -f "$defines_header"
 
 # Templates are in $INSTALLROOT/tools/{selected,available}.tmpl
 # coral-tool-conf will use envsubst to substitute $PKGINSTROOT at runtime
