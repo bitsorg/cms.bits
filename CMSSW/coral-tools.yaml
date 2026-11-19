@@ -3,7 +3,7 @@ version: "v1"
 sources:
   - https://github.com/akritkbehera/scram-tools.file/archive/%(tag)s.tar.gz
 variables:
-  tag: 9de49a504cd3aaa660433629074b036b0f6bc8f7
+  tag: 9ceda9f30d24304d92cde4e779e620fa8975ebcf
   skipreqtools: jcompiler
   override_microarch: "-march=x86-64-v2"
   package_vectorization: ""
